@@ -8,7 +8,7 @@ import { Redis } from '../redis';
 import { IBucket } from 'aws-cdk-lib/aws-s3';
 import { Secret } from 'aws-cdk-lib/aws-secretsmanager';
 import { join } from 'path';
-import { Alb } from '../alb';
+import { Alb, TargetGroup } from '../alb';
 
 export interface ApiServiceProps {
   cluster: ICluster;
@@ -180,6 +180,6 @@ export class ApiService extends Construct {
     service.connections.allowToDefaultPort(redis);
 
     const paths = ['/console/api', '/api', '/v1', '/files'];
-    alb.addEcsService('Api', service, port, '/health', [...paths, ...paths.map((p) => `${p}/*`)]);
+    alb.addEcsService(TargetGroup.API, service, port, '/health', [...paths, ...paths.map((p) => `${p}/*`)]);
   }
 }

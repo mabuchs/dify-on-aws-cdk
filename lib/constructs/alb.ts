@@ -29,12 +29,18 @@ export interface AlbProps {
   hostedZone?: IHostedZone;
 }
 
+export enum TargetGroup {
+  API = 'Api',
+  WEB = 'Web',
+}
+
 export class Alb extends Construct {
   public url: string;
 
   private listenerPriority = 1;
   private listener: ApplicationListener;
   private vpc: IVpc;
+  private targetGroups: { [key: string]: ApplicationTargetGroup } = {};
 
   constructor(scope: Construct, id: string, props: AlbProps) {
     super(scope, id);
@@ -76,12 +82,11 @@ export class Alb extends Construct {
     this.listener = listener;
   }
 
-  public addEcsService(id: string, ecsService: FargateService, port: number, healthCheckPath: string, paths: string[]) {
+  private createTargetGroup(id: TargetGroup, port: number, healthCheckPath: string) {
     const group = new ApplicationTargetGroup(this, `${id}TargetGroup`, {
       vpc: this.vpc,
-      targets: [ecsService],
       protocol: ApplicationProtocol.HTTP,
-      port: port,
+      port,
       deregistrationDelay: Duration.seconds(10),
       healthCheck: {
         path: healthCheckPath,
@@ -91,6 +96,19 @@ export class Alb extends Construct {
         unhealthyThresholdCount: 6,
       },
     });
+    this.targetGroups[id] = group;
+    return group;
+  }
+
+  public addEcsService(
+    id: TargetGroup,
+    ecsService: FargateService,
+    port: number,
+    healthCheckPath: string,
+    paths: string[],
+  ) {
+    const group = this.targetGroups[id] ?? this.createTargetGroup(id, port, healthCheckPath);
+    group.addTarget(ecsService);
     // a condition only accepts an array with up to 5 elements
     // https://docs.aws.amazon.com/elasticloadbalancing/latest/application/load-balancer-limits.html
     for (let i = 0; i < Math.floor((paths.length + 4) / 5); i++) {
