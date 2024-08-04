@@ -1,6 +1,6 @@
 import { Duration } from 'aws-cdk-lib';
 import { Certificate, CertificateValidation } from 'aws-cdk-lib/aws-certificatemanager';
-import { IVpc, Peer, Port, SubnetType } from 'aws-cdk-lib/aws-ec2';
+import { CfnEIP, IVpc, Peer, Port, SecurityGroup, SubnetType } from 'aws-cdk-lib/aws-ec2';
 import { FargateService, IService } from 'aws-cdk-lib/aws-ecs';
 import {
   ApplicationListener,
@@ -155,17 +155,6 @@ export class AuthorizedAlb extends Alb {
       throw new Error(`To enforce cognito authentication, You have to set hostedZone and create certificate!`);
     }
 
-    // create secret token in secrets manager
-    const internalListenerTokenSecret = new secrets_manager.Secret(this, 'InternalListenerToken', {
-      generateSecretString: {
-        generateStringKey: 'token',
-        secretStringTemplate: JSON.stringify({}),
-        excludePunctuation: true,
-      },
-    });
-
-    const internalListenerTokenString = internalListenerTokenSecret.secretValueFromJson('token').unsafeUnwrap();
-
     const authProxyLambda = new NodejsFunction(this, 'authProxyLambda', {
       entry: 'lib/constructs/lambda/lambda_proxy.ts',
       handler: 'handler',
@@ -174,7 +163,6 @@ export class AuthorizedAlb extends Alb {
         externalModules: ['aws-sdk'],
       },
       environment: {
-        INTERNAL_LISTENER_TOKEN: internalListenerTokenString,
         ALB_FQDN: `${subDomain}.${hostedZone.zoneName}`,
         UNAUTHORIZED_MESSAGE:
           'このチャットを利用するには認証が必要です。\n以下の URL をクリックして Amazon Cognito の認証を完了してください。',
@@ -198,6 +186,19 @@ export class AuthorizedAlb extends Alb {
       protocol: ApplicationProtocol.HTTPS,
       certificates: [this.certificate],
       defaultAction: ListenerAction.fixedResponse(403),
+      open: false,
+    });
+
+    const internalHttpsListenerSg = new SecurityGroup(this, 'InternalHttpsListenerSg', {
+      vpc: this.vpc,
+    });
+    this.alb.addSecurityGroup(internalHttpsListenerSg);
+
+    this.vpc.publicSubnets.forEach((subnet, index) => {
+      const eip = subnet.node.children.find((child) => child.node.id == 'EIP') as CfnEIP;
+      if (eip) {
+        internalHttpsListenerSg.addIngressRule(Peer.ipv4(`${eip.ref}/32`), Port.tcp(8443));
+      }
     });
 
     // route initial api request to api if cognito authorized
@@ -209,10 +210,7 @@ export class AuthorizedAlb extends Alb {
         next: ListenerAction.forward([this.targetGroups[TargetGroup.API]]),
         onUnauthenticatedRequest: UnauthenticatedAction.DENY,
       }),
-      conditions: [
-        ListenerCondition.pathPatterns(['/api/meta', '/api/parameters', '/api/conversations', '/api/site']),
-        ListenerCondition.httpHeader('X-Internal-Auth', [internalListenerTokenString]),
-      ],
+      conditions: [ListenerCondition.pathPatterns(['/api/meta', '/api/parameters', '/api/conversations', '/api/site'])],
       priority: 40,
     });
 
