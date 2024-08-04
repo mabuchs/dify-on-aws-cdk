@@ -59,7 +59,6 @@ async function forward(event: ALBEvent, target: string) {
     url: `https://${target}${event.path}`,
     headers: {
       ...event.headers,
-      // 'X-Internal-Auth': process.env.INTERNAL_LISTENER_TOKEN,
     },
     data: event.body,
     params: event.queryStringParameters,
