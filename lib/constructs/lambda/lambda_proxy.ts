@@ -153,9 +153,6 @@ const mockResponses = {
     can_replace_logo: false,
     custom_config: null,
   },
-  '/api/passport': {
-    access_token: 'mock',
-  },
 } as Record<string, any>;
 
 // function to generate uuid
