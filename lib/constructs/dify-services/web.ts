@@ -1,7 +1,7 @@
 import { CpuArchitecture, FargateTaskDefinition, ICluster } from 'aws-cdk-lib/aws-ecs';
 import { Construct } from 'constructs';
 import { Duration, aws_ecs as ecs } from 'aws-cdk-lib';
-import { Alb } from '../alb';
+import { Alb, TargetGroup } from '../alb';
 import { AlbController } from 'aws-cdk-lib/aws-eks';
 
 export interface WebServiceProps {
@@ -80,6 +80,6 @@ export class WebService extends Construct {
       enableExecuteCommand: true,
     });
 
-    alb.addEcsService('Web', service, port, '/', ['/*']);
+    alb.addEcsService(TargetGroup.WEB, service, port, '/', ['/*']);
   }
 }

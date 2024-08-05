@@ -17,8 +17,9 @@ import { BlockPublicAccess, Bucket } from 'aws-cdk-lib/aws-s3';
 import { WebService } from './constructs/dify-services/web';
 import { ApiService } from './constructs/dify-services/api';
 import { WorkerService } from './constructs/dify-services/worker';
-import { Alb } from './constructs/alb';
+import { Alb, AuthorizedAlb } from './constructs/alb';
 import { PublicHostedZone } from 'aws-cdk-lib/aws-route53';
+import { Cognito } from './constructs/cognito';
 
 interface DifyOnAwsStackProps extends cdk.StackProps {
   /**
@@ -55,6 +56,18 @@ interface DifyOnAwsStackProps extends cdk.StackProps {
   hostedZoneId?: string;
 
   /**
+   * The subdomain name you use for Dify's service URL.
+   * @default 'dify'
+   */
+  subDomain?: string;
+
+  /**
+   * if true, require authentication for accessing Dify services.
+   * @default false
+   */
+  requireAuth?: boolean;
+
+  /**
    * If true, the ElastiCache Redis cluster is deployed to multiple AZs for fault tolerance.
    * It is generally recommended to enable this, but you can disable it to minimize AWS cost.
    * @default true
@@ -84,7 +97,12 @@ export class DifyOnAwsStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: DifyOnAwsStackProps) {
     super(scope, id, props);
 
-    const { difyImageTag: imageTag = 'latest', difySandboxImageTag: sandboxImageTag = 'latest' } = props;
+    const {
+      difyImageTag: imageTag = 'latest',
+      difySandboxImageTag: sandboxImageTag = 'latest',
+      requireAuth = false,
+      subDomain = 'dify',
+    } = props;
 
     let vpc: IVpc;
     if (props.vpcId != null) {
@@ -133,7 +151,23 @@ export class DifyOnAwsStack extends cdk.Stack {
       blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
     });
 
-    const alb = new Alb(this, 'Alb', { vpc, allowedCidrs: props.allowedCidrs, hostedZone });
+    if (requireAuth && !hostedZone) {
+      throw new Error(`You have to set hostedZoneId and domainName to set requireAuth to true`);
+    }
+
+    let alb: Alb;
+    const albProps = { vpc, allowedCidrs: props.allowedCidrs, hostedZone, subDomain };
+
+    if (requireAuth && hostedZone) {
+      const cognito = new Cognito(this, 'Cognito', {
+        cognitoDomainPrefix: `dify-${this.account}`,
+        hostedZone,
+        subDomain: subDomain,
+      });
+      alb = new AuthorizedAlb(this, 'Alb', { ...albProps, cognito });
+    } else {
+      alb = new Alb(this, 'Alb', albProps);
+    }
 
     const api = new ApiService(this, 'ApiService', {
       cluster,
